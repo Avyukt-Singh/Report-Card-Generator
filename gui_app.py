@@ -1,15 +1,4 @@
-"""
-gui_app.py - Tkinter GUI for the Smart Student Report Card Generator.
-
-Layers kept separate:
-    gui_app.py        -> THIS FILE (UI / interaction)
-    core_logic.py     -> untouched (calculations)
-    pdf_generator.py  -> untouched (PDF layout)
-    main.py           -> thin launcher, calls gui_app.main()
-
-Features: load CSV, live search (Name/Roll), on-screen preview,
-          single PDF, *EXTRA#1* batch generate-all, *EXTRA#2* class-avg tiles.
-"""
+import pandas as pd
 import os, threading, tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from core_logic import (load_data, processing_records, compute_ranks,
@@ -28,7 +17,7 @@ class ReportCardApp:
         self.root = root
         root.title("Smart Student Report Card Generator")
         root.geometry("1180x720")
-        self.data = self.ranks = self.cs = self.cur = None
+        self.data = self.ranks = self.cs = self.cur = pd.DataFrame()
         self._theme(); self._header(); self._sidebar(); self._preview()
         self.status = tk.StringVar(value="Ready. Load a CSV to begin.")
         tk.Label(root, textvariable=self.status, fg=GREY, bg=LIGHT,
@@ -84,17 +73,24 @@ class ReportCardApp:
         ttk.Button(s, text="Generate ALL PDFs (Batch)", command=self.on_batch).pack(fill="x", padx=14, pady=2)
 
     def _preview(self):
-        w = ttk.Frame(self.root); w.pack(fill="both", expand=True, side="left", padx=(10, 12), pady=8)
-        self.cv = tk.Canvas(w, bg=WHITE, highlightthickness=0)
-        self.inner = ttk.Frame(self.cv)
-        sb = ttk.Scrollbar(w, orient="vertical", command=self.cv.yview)
-        self.cv.create_window((0, 0), window=self.inner, anchor="nw")
-        self.cv.config(yscrollcommand=sb.set)
-        self.inner.bind("<Configure>",
-                        lambda e: self.cv.config(scrollregion=self.cv.bbox("all")))
-        self.cv.pack(side="left", fill="both", expand=True); sb.pack(side="right", fill="y")
-        tk.Label(self.inner, text="\n\nNo student selected.\nLoad a CSV and pick a student.",
-                 font=(F, 11), fg=GREY).pack(padx=40, pady=80)
+            w = ttk.Frame(self.root)
+            w.pack(fill="both", expand=True, side="left", padx=(10, 12), pady=8)
+            self.cv = tk.Canvas(w, bg=WHITE, highlightthickness=0)
+            self.inner = ttk.Frame(self.cv)
+            sb = ttk.Scrollbar(w, orient="vertical", command=self.cv.yview)
+            
+
+            self.win_id = self.cv.create_window((0, 0), window=self.inner, anchor="nw")
+            self.cv.config(yscrollcommand=sb.set)
+            
+            self.inner.bind("<Configure>", lambda e: self.cv.config(scrollregion=self.cv.bbox("all")))
+            self.cv.bind("<Configure>", lambda e: self.cv.itemconfig(self.win_id, width=e.width))
+            
+            self.cv.pack(side="left", fill="both", expand=True)
+            sb.pack(side="right", fill="y")
+            
+            tk.Label(self.inner, text="\n\nNo student selected.\nLoad a CSV and pick a student.",
+                    font=(F, 11), fg=GREY).pack(padx=40, pady=80)
 
     def on_load(self):
         p = filedialog.askopenfilename(
@@ -150,7 +146,7 @@ class ReportCardApp:
         self.status.set(f"Selected: {self.cur['name']} (Roll {self.cur['roll']})")
 
     def on_pdf(self):
-        if not self.cur: messagebox.showinfo("No selection", "Pick a student first."); return
+        if self.data is not None and not self.data.empty: messagebox.showinfo("No selection", "Pick a student first."); return
         try:
             p = generate_pdf(self.cur, self.ranks); self.status.set(f"PDF saved: {p}")
             if messagebox.askyesno("Done", f"PDF generated:\n{p}\n\nOpen folder?"):
@@ -181,7 +177,7 @@ class ReportCardApp:
 
     def _render(self):
         self._clear()
-        r = self.cur; rk = self.ranks["overall"].get(r["roll"], "-"); n = len(self.ranks["overall"])
+        r = self.cur; rk = self.ranks["overall"].get(int(r["roll"]), "-"); n = len(self.ranks["overall"]) # type: ignore
         # Student details
         self._sec("STUDENT DETAILS")
         d = tk.Frame(self.inner, bg=LIGHT, bd=1, relief="solid"); d.pack(fill="x", padx=20, pady=4)
